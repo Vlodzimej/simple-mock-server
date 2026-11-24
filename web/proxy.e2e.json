@@ -1,0 +1,5 @@
+{
+  "/admin/api": { "target": "http://localhost:5081", "secure": false },
+  "^/s(?:/|$)": { "target": "http://localhost:5081", "secure": false },
+  "/mcp": { "target": "http://localhost:5081", "secure": false }
+}

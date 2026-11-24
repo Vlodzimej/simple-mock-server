@@ -1,0 +1,151 @@
+<div class="sessions">
+  <div class="sessions__intro">
+    <div class="uiTitle">HTTP-сессии</div>
+    <div class="uiMuted">
+      Произвольные пути и ответы под задачу. Запросы без совпавшего правила передаются на backend
+      сессии.
+    </div>
+    <div class="uiMuted">MCP для агента: {{ mcpEndpoint }}</div>
+  </div>
+  <div class="sessions__actions">
+    <button class="uiButton" type="button" [disabled]="busy()" (click)="create()">
+      Новая HTTP-сессия
+    </button>
+    <button class="uiButton" type="button" [disabled]="busy() || loading()" (click)="loadList()">
+      Обновить список сессий
+    </button>
+    <label class="uiField sessions__import"
+      ><span>Импорт сессии из JSON</span
+      ><input
+        class="uiInput"
+        type="file"
+        accept=".json,application/json"
+        [disabled]="busy()"
+        (change)="import($event)"
+    /></label>
+  </div>
+  @if (listError()) {
+    <div class="uiError">{{ listError() }}</div>
+  }
+  @if (error()) {
+    <div class="uiError">{{ error() }}</div>
+  }
+  @if (notice()) {
+    <div class="uiNotice">{{ notice() }}</div>
+  }
+  @if (busy()) {
+    <div class="uiMuted">Выполнение операции с сессией…</div>
+  }
+  <div class="sessions__workspace">
+    <div class="sessions__list">
+      @if (loading()) {
+        <div class="uiMuted">Загрузка списка сессий…</div>
+      }
+      @for (item of items(); track item.id) {
+        <button
+          type="button"
+          class="sessions__row"
+          [class.sessions__row_selected]="selected()?.id === item.id"
+          [disabled]="busy()"
+          (click)="select(item.id)"
+        >
+          <span>{{ item.name }}</span>
+          <span class="uiMuted">{{ item.rules.length }} правил · {{ item.state }}</span>
+        </button>
+      } @empty {
+        @if (!loading() && !listError()) {
+          <div class="uiMuted">Сессий пока нет. Создайте HTTP-сессию или импортируйте JSON.</div>
+        }
+      }
+    </div>
+    @if (editing()) {
+      <div class="sessions__editor">
+        @if (selected(); as session) {
+          <label class="uiField"
+            ><span>Адрес подключения приложения</span
+            ><input class="uiInput sessions__endpoint" readonly [value]="endpoint()"
+          /></label>
+          <div class="uiMuted">
+            Состояние: {{ session.state }}. На физическом телефоне замените localhost на доступный
+            адрес компьютера. Добавляйте путь API после адреса сессии.
+          </div>
+        }
+        <div class="uiNotice">
+          Конфигурация: name, upstreamBaseUrl, proxyEnabled, initialState, protectedPaths и rules.
+          Правило: id, priority (меньше = раньше), match и response. В match задаются method, path,
+          query, headers, form и json; в response: status, delayMs, headers и json либо text.
+          Параметры пути задаются отдельными сегментами в фигурных скобках. whenState и nextState
+          задают переходы состояния.
+        </div>
+        <form (submit)="$event.preventDefault(); save()">
+          <fieldset class="sessions__fieldset" [disabled]="busy()">
+            <label class="uiField"
+              ><span>Конфигурация сессии (JSON)</span
+              ><textarea
+                class="uiInput sessions__json"
+                [formControl]="config"
+                spellcheck="false"
+                rows="20"
+              ></textarea>
+            </label>
+            <div class="sessions__actions">
+              <button class="uiButton uiPrimary" type="submit">Сохранить сессию</button>
+              <button class="uiButton" type="button" (click)="discard()">Сбросить изменения</button>
+              @if (selected()) {
+                <button class="uiButton" type="button" (click)="export()">Экспорт JSON</button>
+                <button class="uiButton" type="button" (click)="reset()">
+                  Сбросить состояние и журнал
+                </button>
+                <button class="uiButton uiDanger" type="button" (click)="remove()">
+                  Удалить сессию
+                </button>
+              }
+            </div>
+          </fieldset>
+        </form>
+        @if (selected()) {
+          <div class="uiGroup">
+            <div class="uiSubtitle">Запросы сессии</div>
+            <div class="uiMuted">
+              Последние 100 запросов. Тела и секретные заголовки не сохраняются.
+            </div>
+            <button
+              class="uiButton"
+              type="button"
+              [disabled]="busy() || logsLoading()"
+              (click)="loadRequests()"
+            >
+              Обновить запросы
+            </button>
+            @if (logsLoading()) {
+              <div class="uiMuted">Загрузка запросов сессии…</div>
+            }
+            @if (logsError()) {
+              <div class="uiError">{{ logsError() }}</div>
+            }
+            @for (request of requests(); track request.id) {
+              <div class="sessions__request">
+                <div>{{ request.method }} {{ request.path }}</div>
+                <div>
+                  {{ request.source }} · HTTP {{ request.statusCode }} · {{ request.durationMs }} мс
+                  @if (request.ruleId) {
+                    · {{ request.ruleId }}
+                  }
+                </div>
+                <div class="uiMuted">{{ request.reason }}</div>
+              </div>
+            } @empty {
+              @if (!logsLoading() && !logsError()) {
+                <div class="uiMuted">
+                  Запросов пока нет. Выполните вызов через адрес этой сессии.
+                </div>
+              }
+            }
+          </div>
+        }
+      </div>
+    } @else {
+      <div class="uiNotice">Выберите сессию для редактирования правил и просмотра запросов.</div>
+    }
+  </div>
+</div>

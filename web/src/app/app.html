@@ -1,0 +1,17 @@
+<div class="shell">
+  <div class="shell__top">
+    <div class="shell__identity">
+      <div class="shell__name">Simple Mock Server</div>
+      <div class="uiMuted">Локальные сценарии API</div>
+    </div>
+    <button class="uiButton" type="button" (click)="toggleTheme()">
+      {{ dark() ? 'Светлая тема' : 'Тёмная тема' }}
+    </button>
+  </div>
+  <div class="shell__navigation">
+    <a class="shell__link" routerLink="/sessions" routerLinkActive="shell__link_active"
+      >HTTP-сессии</a
+    >
+  </div>
+  <div class="shell__content"><router-outlet /></div>
+</div>
