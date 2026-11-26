@@ -1,0 +1,11 @@
+services:
+  server:
+    build: .
+    ports:
+      - "0.0.0.0:5080:5080"
+    volumes:
+      - mock-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  mock-data:
