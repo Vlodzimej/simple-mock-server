@@ -1,0 +1,19 @@
+services:
+  mock-server:
+    image: simple-mock-server:local
+    build:
+      context: .
+    ports:
+      - "${MOCK_BIND_ADDRESS:-127.0.0.1}:${MOCK_PORT:-5080}:8080"
+    environment:
+      DatabasePath: /data/${MOCK_DATABASE_FILE:-mock.db}
+      AllowedOrigins__0: ${MOCK_ALLOWED_ORIGIN:-http://localhost:5080}
+    user: "${MOCK_UID:-1654}:${MOCK_GID:-1654}"
+    volumes:
+      - ${MOCK_DATA_SOURCE:-mock-data}:/data
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    restart: unless-stopped
+
+volumes:
+  mock-data:

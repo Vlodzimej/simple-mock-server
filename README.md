@@ -51,6 +51,91 @@ dotnet MockServer.Api.dll
 
 Панель и API работают в одном процессе на [localhost:5080](http://localhost:5080). Для публикации нужен SDK, для запуска достаточно .NET 10 Runtime с ASP.NET Core. Запускайте из dist/server для предсказуемых путей к БД, настройкам и статическим файлам.
 
+## Docker
+
+Нужны Docker Engine и Docker Compose. Из корня проекта:
+
+```bash
+docker compose up --build -d
+docker compose ps
+docker compose logs -f mock-server
+```
+
+Панель: [localhost:5080/sessions](http://localhost:5080/sessions), API и MCP работают
+на том же порту. Образ собирает Angular на Node 24 и backend на .NET SDK 10;
+в рабочем контейнере остаются ASP.NET Core Runtime и собранная панель. Процесс
+работает от непривилегированного пользователя. Проверка `/health` отображается
+в состоянии контейнера.
+
+Используются [официальные образы ASP.NET Core 10](https://learn.microsoft.com/en-us/aspnet/core/host-and-deploy/docker/building-net-docker-images?view=aspnetcore-10.0).
+
+SQLite хранится в `/data/mock.db` внутри постоянного volume `mock-data`.
+Сессии и журнал сохраняются при перезапуске, пересборке и `docker compose down`.
+Команда `docker compose down --volumes` удаляет этот volume вместе с базой.
+Локальные базы и каталог `work` не попадают в образ.
+
+Остановка и последующий запуск:
+
+```bash
+docker compose down
+docker compose up -d
+```
+
+### Существующая база
+
+По умолчанию контейнер создаёт новую базу в volume. Для базы с `cabinet-staging`
+используйте каталог `work` как bind mount и укажите имя файла. Сначала остановите
+другой экземпляр сервера, работающий с этой базой. Важно подключать каталог целиком,
+чтобы SQLite сохранял рядом файлы WAL/SHM.
+
+```bash
+MOCK_DATA_SOURCE=./work \
+MOCK_DATABASE_FILE=published-sessions-smoke.db \
+MOCK_UID="$(id -u)" MOCK_GID="$(id -g)" \
+docker compose up --build -d
+```
+
+Для повторных запусков с этой базой используйте те же переменные. Их можно сохранить
+в локальном `.env` в корне проекта; файл исключён из Git и контекста сборки:
+
+```dotenv
+MOCK_DATA_SOURCE=./work
+MOCK_DATABASE_FILE=published-sessions-smoke.db
+# UID и GID владельца файлов, значения из id -u и id -g
+MOCK_UID=501
+MOCK_GID=20
+```
+
+В примере UID/GID показаны для macOS; подставьте значения своей системы.
+Миграции применяются автоматически, существующие сессии и журнал сохраняются.
+Перед первым обновлением базы можно сделать согласованную копию через SQLite backup.
+
+### Порт, LAN и upstream на компьютере
+
+По умолчанию порт доступен только на самом компьютере. Для другого порта:
+
+```bash
+MOCK_PORT=5090 docker compose up -d
+```
+
+Для телефона в локальной сети:
+
+```bash
+MOCK_BIND_ADDRESS=0.0.0.0 docker compose up -d
+```
+
+Адрес подключения телефона: `http://LAN-АДРЕС:5080/s/{id}`. Если браузер приложения
+использует другой origin, задайте его через `MOCK_ALLOWED_ORIGIN`. Для дополнительных
+origin добавьте `AllowedOrigins__1`, `AllowedOrigins__2` в environment сервиса.
+
+Если upstream запущен на компьютере, в конфигурации сессии замените его `localhost`
+на `host.docker.internal`, например `http://host.docker.internal:3000`.
+Compose добавляет этот адрес и для Docker Engine на Linux. Для upstream в другом
+контейнере используйте имя его сервиса и общую Docker-сеть. На Linux сервер
+upstream должен принимать подключения со стороны Docker-сети.
+
+[Результаты проверки Docker](docs/verification-docker.md).
+
 ## Работа с сессией
 
 1. Откройте панель и создайте HTTP-сессию.
