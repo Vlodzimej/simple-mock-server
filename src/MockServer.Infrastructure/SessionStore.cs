@@ -89,12 +89,55 @@ public sealed class SessionStore(MockDbContext database, SessionLocks locks)
         return new { session.Name, session.UpstreamBaseUrl, session.ProxyEnabled, session.InitialState, session.Rules, session.ProtectedPaths };
     }
 
-    public async Task<List<SessionRequest>> Requests(string id, CancellationToken token, int limit = 100, string? ruleId = null)
+    public async Task<List<SessionRequest>> Requests(string id, CancellationToken token, int limit = 100, string? ruleId = null,
+        string? method = null, int? statusCode = null, string? source = null, string? search = null,
+        DateTime? from = null, DateTime? to = null, long? beforeId = null)
     {
         await Find(id, token);
+        if (from > to) throw new SessionException("Начало периода должно быть раньше конца");
         var query = database.SessionRequests.AsNoTracking().Where(row => row.SessionId == id);
-        if (ruleId is not null) query = query.Where(row => row.RuleId == ruleId);
-        return await query.OrderByDescending(row => row.Id).Take(Math.Clamp(limit, 1, 5000)).ToListAsync(token);
+        if (!string.IsNullOrEmpty(ruleId)) query = query.Where(row => row.RuleId == ruleId);
+        if (!string.IsNullOrEmpty(method)) query = query.Where(row => row.Method == method.ToUpperInvariant());
+        if (statusCode is not null) query = query.Where(row => row.StatusCode == statusCode);
+        if (!string.IsNullOrEmpty(source)) query = query.Where(row => row.Source == source);
+        if (from is not null) query = query.Where(row => row.CreatedAt >= from.Value.ToUniversalTime());
+        if (to is not null) query = query.Where(row => row.CreatedAt <= to.Value.ToUniversalTime());
+        if (beforeId is not null) query = query.Where(row => row.Id < beforeId);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.ToLowerInvariant();
+            query = query.Where(row => row.Path.ToLower().Contains(term) || row.Reason.ToLower().Contains(term) ||
+                (row.QueryString != null && row.QueryString.ToLower().Contains(term)) ||
+                (row.RuleId != null && row.RuleId.ToLower().Contains(term)) ||
+                (row.DetailsJson != null && row.DetailsJson.ToLower().Contains(term)));
+        }
+        return await query.OrderByDescending(row => row.Id).Take(Math.Clamp(limit, 1, 5000))
+            .Select(row => new SessionRequest
+            {
+                Id = row.Id, SessionId = row.SessionId, CreatedAt = row.CreatedAt, Method = row.Method,
+                Path = row.Path, QueryString = row.QueryString, RuleId = row.RuleId, Source = row.Source,
+                StatusCode = row.StatusCode, DurationMs = row.DurationMs, Reason = row.Reason
+            }).ToListAsync(token);
+    }
+
+    public async Task<SessionRequest> Request(string id, long requestId, CancellationToken token)
+    {
+        await Find(id, token);
+        var request = await database.SessionRequests.AsNoTracking().SingleOrDefaultAsync(row => row.SessionId == id && row.Id == requestId, token)
+            ?? throw new SessionException("Запись журнала не найдена", 404);
+        if (request.DetailsJson is not null) request.Details = JsonSerializer.Deserialize<SessionRequestDetails>(request.DetailsJson, SessionJson.Options);
+        return request;
+    }
+
+    public async Task<int> DeleteRequests(string id, JournalDeletion deletion, CancellationToken token)
+    {
+        if (deletion.All && deletion.Ids is { Length: > 0 } || !deletion.All && (deletion.Ids is not { Length: > 0 } || deletion.Ids.Length > 5000))
+            throw new SessionException("Укажите all: true либо от 1 до 5000 id записей");
+        using var lease = await locks.Enter(id, token);
+        await Find(id, token);
+        var query = database.SessionRequests.Where(row => row.SessionId == id);
+        if (!deletion.All) query = query.Where(row => deletion.Ids!.Contains(row.Id));
+        return await query.ExecuteDeleteAsync(token);
     }
 
     public async Task<VerificationResult> Verify(string id, RequestVerification verification, CancellationToken token)
@@ -125,3 +168,5 @@ public sealed class SessionStore(MockDbContext database, SessionLocks locks)
     internal static MockSession Decode(SessionRow row) => JsonSerializer.Deserialize<MockSession>(row.Payload, SessionJson.Options)!;
     internal static string Encode(MockSession session) => JsonSerializer.Serialize(session, SessionJson.Options);
 }
+
+public sealed record JournalDeletion(bool All = false, long[]? Ids = null);

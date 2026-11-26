@@ -35,6 +35,13 @@ public class McpTests
         Assert.Equal("agent-rule", (string?)Content(requests)["items"]![0]!["ruleId"]);
         var verification = Content(await mcp.CallToolAsync("verify_requests", new Dictionary<string, object?> { ["sessionId"] = id, ["verification"] = new { ruleId = "agent-rule", count = 1 } }));
         Assert.True((bool)verification["matched"]!);
+        var requestId = (long)Content(requests)["items"]![0]!["id"]!;
+        var details = Content(await mcp.CallToolAsync("get_request_details", new Dictionary<string, object?> { ["sessionId"] = id, ["requestId"] = requestId }));
+        var responseBody = JsonNode.Parse((string)details["details"]!["responseBody"]!["content"]!);
+        Assert.Equal("Тестовая ошибка", (string?)responseBody!["message"]);
+        var deleted = Content(await mcp.CallToolAsync("delete_requests", new Dictionary<string, object?> { ["sessionId"] = id, ["deletion"] = new { ids = new[] { requestId } } }));
+        Assert.Equal(1, (int)deleted["deleted"]!);
+        Assert.Empty((await Read(await http.GetAsync($"/admin/api/sessions/{id}/requests"))).AsArray());
         var exported = Content(await mcp.CallToolAsync("export_session", new Dictionary<string, object?> { ["sessionId"] = id }));
         var imported = Content(await mcp.CallToolAsync("import_session", new Dictionary<string, object?> { ["configuration"] = JsonSerializer.Deserialize<JsonElement>(exported.ToJsonString()) }));
         Assert.NotEqual(id, (string?)imported["id"]);

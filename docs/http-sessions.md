@@ -7,7 +7,7 @@
 1. Запустите сервер по README и откройте `/sessions`.
 2. Нажмите «Новая HTTP-сессия», задайте name, upstreamBaseUrl и rules в JSON. Сохраните.
 3. Возьмите «Адрес подключения приложения» и используйте его как base URL. Добавляйте существующие пути API после `/s/{id}`.
-4. Выполните проверку в приложении. «Обновить запросы» показывает выбранные правила, статус и причины отказов.
+4. Выполните проверку в приложении. На вкладке «Журнал запросов» доступны фильтры, обновление, загрузка более старых записей, подробности и удаление. Вкладка «Конфигурация» сохраняет несохранённый JSON при переключении.
 5. «Сбросить состояние и журнал» возвращает initialState без удаления правил. Экспорт и импорт переносят сценарий между запусками/компьютерами; импорт всегда создаёт новую сессию.
 
 Пример конфигурации (демонстрационные маршрут и ответ):
@@ -73,10 +73,24 @@
 | POST | `/admin/api/sessions/{id}/reset` | initialState и очистка журнала |
 | GET | `/admin/api/sessions/{id}/export` | Конфигурация без id/state/истории |
 | POST | `/admin/api/sessions/import` | Конфигурация как новая сессия |
-| GET | `/admin/api/sessions/{id}/requests?limit=100&ruleId=...` | Последние запросы; limit до 5000 |
+| GET | `/admin/api/sessions/{id}/requests?limit=100&beforeId=...` | Страница журнала, limit до 5000; без ограничения общего числа |
+| GET | `/admin/api/sessions/{id}/requests/{requestId}` | Запись с подробностями запроса и ответа |
+| DELETE | `/admin/api/sessions/{id}/requests` | `{"ids":[1,2]}` либо `{"all":true}`; ответ `{"deleted":2}` |
 | POST | `/admin/api/sessions/{id}/verify` | Проверка количества вызовов |
 
-Тело verify: `{"ruleId":"update-error","method":"PATCH","path":"/v2/items/42","count":1}`. Фильтры необязательны; путь точный, count по умолчанию 1. Ответ: `{"matched":true,"actualCount":1,"expectedCount":1}`. Проверка относится к сохранённым последним 5000 запросам сессии. Панель показывает последние 100. Журнал не хранит query, тела и заголовки; URL path сохраняется. Не помещайте секреты непосредственно в путь.
+Тело verify: `{"ruleId":"update-error","method":"PATCH","path":"/v2/items/42","count":1}`. Фильтры необязательны; путь точный, count по умолчанию 1. Ответ: `{"matched":true,"actualCount":1,"expectedCount":1}`. Проверка относится ко всему сохранённому журналу сессии; удалённые записи не учитываются.
+
+### Расширенный журнал
+
+Список отсортирован по убыванию id. Для следующей страницы передайте `beforeId`, равный последнему id предыдущей страницы, с теми же фильтрами. Панель загружает по 50 записей; кнопка «Загрузить ещё» открывает всю сохранённую историю. Новые запросы появляются после обновления. Ограничений в 100 или 5000 сохранённых записей больше нет.
+
+Фильтры списка: `method` (без учёта регистра), `statusCode` (точный код), `source` (`mock`, `proxy`, `blocked`), `ruleId` (точное значение), `search` (подстрока пути, query, правила, причины и сохранённых подробностей без учёта регистра), `from` и `to` (включительно, ISO 8601 с часовым поясом). В панели даты вводятся в местном времени. Начало периода позже конца даёт 400. Фильтрация применяется до ограничения размера страницы.
+
+Краткая запись содержит id, sessionId, createdAt, method, path, queryString, ruleId, source, statusCode, durationMs, reason. Подробности загружаются отдельным GET в поле `details`: requestUrl, upstreamUrl, protocol, traceId, remoteAddress/remotePort, localAddress/localPort, stateBefore/stateAfter, completedAt, clientAborted, requestHeaders/responseHeaders, requestBody/responseBody. Тело содержит content, encoding, contentType, size (байты; null, если размер неизвестен), truncated и note. Заголовки сохраняют массивы значений; бинарные тела имеют encoding `base64`. Статус 499 обозначает отмену клиентом.
+
+Тела ограничены 256 KiB каждое; исходный HTTP-ответ и запрос не усекаются. Известные поля password/passwd/pwd, secret, token, authorization, cookie, apiKey и credential маскируются в заголовках, query, вложенных JSON, XML и формах. Поля multipart/form-data сохраняются вместе с именами, типами и размерами файлов, без содержимого файлов. Некорректные и усечённые JSON/XML/multipart не сохраняются сырыми, причина видна в note. Gzip/br/deflate распаковываются до 256 KiB перед маскированием; size указывает размер сжатого тела. Другие кодирования и multipart/mixed пропускаются с объяснением. При потоковом запросе фиксируется прочитанная часть, журнал не ждёт окончания загрузки до передачи upstream. Произвольные секреты в текстах, путях и бинарных данных не всегда распознаются. Не помещайте секреты в путь.
+
+Старые записи не содержат `details`; они остаются доступными после миграции. Удаление выбранных принимает до 5000 id за операцию и затрагивает только заданную сессию. `all: true` удаляет весь её журнал, включая записи вне фильтров, без изменения правил и состояния. В панели обе операции требуют подтверждения.
 
 Создание через файл экспорта:
 
@@ -97,7 +111,7 @@ codex mcp add simple-mock --url http://localhost:5080/mcp
 
 Эта команда добавляет подключение в конфигурацию Codex; автоматически проект её не выполняет. После подключения обновите список MCP-инструментов в клиенте. Для другого MCP-клиента задайте тот же URL как Streamable HTTP endpoint.
 
-Инструменты: create_session, list_sessions, get_session, update_session, delete_session, upsert_rule, delete_rule, set_scenario_state, list_requests, verify_requests, reset_session, export_session, import_session. `list_sessions` и `list_requests` возвращают объект `{"items":[...]}`. Создание возвращает id и basePath `/s/{id}`. Полный адрес устройства складывается из доступного адреса сервера и basePath. Все операции используют ту же прикладную логику, что и панель/API.
+Инструменты: create_session, list_sessions, get_session, update_session, delete_session, upsert_rule, delete_rule, set_scenario_state, list_requests, get_request_details, delete_requests, verify_requests, reset_session, export_session, import_session. `list_sessions` и `list_requests` возвращают объект `{"items":[...]}`. Создание возвращает id и basePath `/s/{id}`. Полный адрес устройства складывается из доступного адреса сервера и basePath. Все операции используют ту же прикладную логику, что и панель/API.
 
 Пример задачи агенту:
 

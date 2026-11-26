@@ -34,6 +34,7 @@ public sealed class SessionProxy(IHttpForwarder forwarder, MockInstance instance
             suffix = (suffixStart < 0 ? "/" : rawPath[suffixStart..]) + context.Request.QueryString.Value;
         }
         else suffix = path + context.Request.QueryString.Value;
+        context.Items["SessionUpstreamUrl"] = session.UpstreamBaseUrl.TrimEnd('/') + suffix;
         try
         {
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);

@@ -1,0 +1,222 @@
+<div class="requestJournal">
+  <div class="uiSubtitle">Журнал запросов</div>
+  <div class="uiMuted">
+    Все сохранённые запросы доступны страницами. Секретные поля маскируются. Каждое тело сохраняется
+    до 256 KiB; усечение отмечается в подробностях.
+  </div>
+  <form [formGroup]="filters" (submit)="$event.preventDefault(); apply()">
+    <fieldset class="requestJournal__fieldset" [disabled]="disabled() || deleting() || loading()">
+      <div class="requestJournal__filters">
+        <label class="uiField requestJournal__search"
+          ><span>Поиск в журнале</span>
+          <input
+            class="uiInput"
+            type="search"
+            formControlName="search"
+            placeholder="Путь, query, правило, причина, заголовки или тело"
+          />
+        </label>
+        <label class="uiField"
+          ><span>Метод</span>
+          <input class="uiInput" formControlName="method" placeholder="Любой метод" />
+        </label>
+        <label class="uiField"
+          ><span>HTTP-статус</span>
+          <input
+            class="uiInput"
+            type="number"
+            min="100"
+            max="599"
+            formControlName="statusCode"
+            placeholder="Любой статус"
+          />
+        </label>
+        <label class="uiField"
+          ><span>Источник</span>
+          <select class="uiInput" formControlName="source">
+            <option value="">Все источники</option>
+            <option value="mock">mock</option>
+            <option value="proxy">proxy</option>
+            <option value="blocked">blocked</option>
+          </select>
+        </label>
+        <label class="uiField"
+          ><span>ID правила</span><input class="uiInput" formControlName="ruleId"
+        /></label>
+        <label class="uiField"
+          ><span>Период с (местное время)</span
+          ><input class="uiInput" type="datetime-local" formControlName="from"
+        /></label>
+        <label class="uiField"
+          ><span>Период по (местное время)</span
+          ><input class="uiInput" type="datetime-local" formControlName="to"
+        /></label>
+      </div>
+      <div class="requestJournal__actions">
+        <button class="uiButton uiPrimary" type="submit">Применить фильтры</button>
+        <button class="uiButton" type="button" (click)="resetFilters()">Сбросить фильтры</button>
+        <button class="uiButton" type="button" (click)="load()">Обновить запросы</button>
+      </div>
+    </fieldset>
+  </form>
+  <div class="requestJournal__actions">
+    <label class="uiCheck"
+      ><input
+        type="checkbox"
+        [checked]="allSelected()"
+        [disabled]="!rows().length || deleting() || loading() || disabled()"
+        (change)="toggleAll()"
+      /><span>Выбрать все загруженные</span></label
+    >
+    <button
+      class="uiButton uiDanger"
+      type="button"
+      [disabled]="!selected().size || deleting() || loading() || disabled()"
+      (click)="remove(false)"
+    >
+      Удалить выбранные
+    </button>
+    <button
+      class="uiButton uiDanger"
+      type="button"
+      [disabled]="deleting() || loading() || disabled()"
+      (click)="remove(true)"
+    >
+      Удалить весь журнал
+    </button>
+    <span class="uiMuted">Загружено: {{ rows().length }} · Выбрано: {{ selected().size }}</span>
+  </div>
+  @if (loading()) {
+    <div class="uiMuted">Загрузка запросов сессии…</div>
+  }
+  @if (deleting()) {
+    <div class="uiMuted">Удаление записей журнала…</div>
+  }
+  @if (error()) {
+    <div class="uiError">{{ error() }}</div>
+  }
+  @if (notice()) {
+    <div class="uiNotice">{{ notice() }}</div>
+  }
+  @for (row of rows(); track row.id) {
+    <div class="requestJournal__row">
+      <label class="uiCheck requestJournal__selection"
+        ><input
+          type="checkbox"
+          [checked]="selected().has(row.id)"
+          [disabled]="deleting() || disabled()"
+          (change)="toggle(row.id)"
+        /><span>Запись {{ row.id }}</span></label
+      >
+      <div class="requestJournal__summary">
+        <div class="requestJournal__path">{{ row.method }} {{ row.path }}{{ row.queryString }}</div>
+        <div>
+          {{ row.createdAt | date: 'dd.MM.yyyy HH:mm:ss.SSS' }} · {{ row.source }} · HTTP
+          {{ row.statusCode }} · {{ row.durationMs }} мс
+          @if (row.ruleId) {
+            · {{ row.ruleId }}
+          }
+        </div>
+        <div class="uiMuted">{{ row.reason }}</div>
+        <button
+          class="uiButton"
+          type="button"
+          [disabled]="deleting() || disabled() || detailLoading() === row.id"
+          (click)="openDetails(row.id)"
+        >
+          Подробнее
+        </button>
+        @if (detailLoading() === row.id) {
+          <div class="uiMuted">Загрузка подробностей…</div>
+        }
+        @if (detail()?.id === row.id) {
+          <div class="requestJournal__details">
+            <div class="requestJournal__actions">
+              <div class="uiSubtitle">Подробности записи {{ row.id }}</div>
+              <button class="uiButton" type="button" (click)="closeDetails()">
+                Закрыть подробности
+              </button>
+            </div>
+            @if (detail()?.details; as data) {
+              <div class="requestJournal__metadata">
+                <div>URL: {{ data.requestUrl }}</div>
+                <div>Upstream: {{ data.upstreamUrl || 'Запрос не отправлялся' }}</div>
+                <div>Протокол: {{ data.protocol }} · Trace ID: {{ data.traceId }}</div>
+                <div>Клиент: {{ data.remoteAddress }}:{{ data.remotePort }}</div>
+                <div>Сервер: {{ data.localAddress }}:{{ data.localPort }}</div>
+                <div>Состояние: {{ data.stateBefore }} → {{ data.stateAfter }}</div>
+                <div>
+                  Завершён: {{ data.completedAt | date: 'dd.MM.yyyy HH:mm:ss.SSS' }} · Отменён
+                  клиентом: {{ data.clientAborted ? 'да' : 'нет' }}
+                </div>
+              </div>
+              <div class="uiSubtitle">Заголовки запроса</div>
+              <div class="requestJournal__payload">{{ data.requestHeaders | json }}</div>
+              <div class="uiSubtitle">Тело запроса</div>
+              @if (data.requestBody; as body) {
+                <div class="uiMuted">
+                  {{ body.contentType || 'Content-Type не указан' }} · {{ body.encoding }} ·
+                  {{ body.size === null ? 'Размер неизвестен' : body.size + ' байт' }}
+                </div>
+                @if (body.truncated) {
+                  <div class="uiNotice">Тело усечено до 256 KiB.</div>
+                }
+                @if (body.note) {
+                  <div class="uiNotice">{{ body.note }}</div>
+                }
+                <div class="requestJournal__payload">
+                  {{ requestContent() }}
+                </div>
+              } @else {
+                <div class="uiMuted">Тело не сохранено.</div>
+              }
+              <div class="uiSubtitle">Заголовки ответа</div>
+              <div class="requestJournal__payload">{{ data.responseHeaders | json }}</div>
+              <div class="uiSubtitle">Тело ответа</div>
+              @if (data.responseBody; as body) {
+                <div class="uiMuted">
+                  {{ body.contentType || 'Content-Type не указан' }} · {{ body.encoding }} ·
+                  {{ body.size === null ? 'Размер неизвестен' : body.size + ' байт' }}
+                </div>
+                @if (body.truncated) {
+                  <div class="uiNotice">Тело усечено до 256 KiB.</div>
+                }
+                @if (body.note) {
+                  <div class="uiNotice">{{ body.note }}</div>
+                }
+                <div class="requestJournal__payload">
+                  {{ responseContent() }}
+                </div>
+              } @else {
+                <div class="uiMuted">Тело не сохранено.</div>
+              }
+            } @else {
+              <div class="uiNotice">
+                Подробности не сохранялись для этой записи. Расширенный журнал доступен для новых
+                запросов.
+              </div>
+            }
+          </div>
+        }
+      </div>
+    </div>
+  } @empty {
+    @if (!loading() && !error()) {
+      <div class="uiNotice">По заданным фильтрам запросов нет.</div>
+      <div class="uiMuted">Сбросьте фильтры или выполните вызов через адрес этой сессии.</div>
+    }
+  }
+  @if (detailError()) {
+    <div class="uiError">{{ detailError() }} Повторите открытие подробностей.</div>
+  }
+  @if (hasMore()) {
+    <button
+      class="uiButton"
+      type="button"
+      [disabled]="loading() || deleting() || disabled()"
+      (click)="load(true)"
+    >
+      Загрузить ещё
+    </button>
+  }
+</div>

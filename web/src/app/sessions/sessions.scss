@@ -60,12 +60,20 @@
   &__endpoint {
     font-family: ui-monospace, monospace;
   }
-  &__request {
-    display: grid;
-    gap: calc(var(--space) * 0.5);
-    padding-block: calc(var(--space) * 0.75);
+  &__tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--space) * 0.75);
     border-bottom: 1px solid var(--line);
-    overflow-wrap: anywhere;
+    padding-bottom: calc(var(--space) * 0.75);
+  }
+  &__tab {
+    &_active {
+      border-color: var(--accent);
+      background: var(--selected);
+      font-weight: 600;
+      text-decoration: underline;
+    }
   }
   @media (min-width: 700px) {
     &__list {

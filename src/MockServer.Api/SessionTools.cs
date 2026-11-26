@@ -46,10 +46,20 @@ public sealed class SessionTools(SessionStore store)
     [McpServerTool(Name = "set_scenario_state", OpenWorld = false), Description("Установка именованного состояния сценария для правил whenState. Изоляция по sessionId.")]
     public Task<CallToolResult> SetState(string sessionId, string state, CancellationToken cancellationToken) => Run(async () => await store.SetState(sessionId, state, cancellationToken));
 
-    [McpServerTool(Name = "list_requests", ReadOnly = true, OpenWorld = false), Description("Последние запросы сессии: путь, метод, ruleId, источник mock/proxy/blocked, HTTP-статус и причина. По умолчанию 100, максимум 5000; тела и секретные заголовки не сохраняются.")]
-    public Task<CallToolResult> ListRequests(string sessionId, CancellationToken cancellationToken, int limit = 100, string? ruleId = null) => Run(async () => await store.Requests(sessionId, cancellationToken, limit, ruleId));
+    [McpServerTool(Name = "list_requests", ReadOnly = true, OpenWorld = false), Description("Журнал сессии с фильтрами method/statusCode/source/ruleId/search/from/to. Страница до 5000 записей; beforeId загружает более старые записи. Подробности и тела доступны через get_request_details. Секреты маскируются.")]
+    public Task<CallToolResult> ListRequests(string sessionId, CancellationToken cancellationToken, int limit = 100, string? ruleId = null,
+        string? method = null, int? statusCode = null, string? source = null, string? search = null, DateTime? from = null, DateTime? to = null, long? beforeId = null) =>
+        Run(async () => await store.Requests(sessionId, cancellationToken, limit, ruleId, method, statusCode, source, search, from, to, beforeId));
 
-    [McpServerTool(Name = "verify_requests", ReadOnly = true, OpenWorld = false), Description("Проверка точного количества запросов в сохранённом журнале. verification: count (по умолчанию 1), необязательные ruleId/method/path. matched означает равенство actualCount и expectedCount. Журнал ограничен 5000 запросами на сессию.")]
+    [McpServerTool(Name = "get_request_details", ReadOnly = true, OpenWorld = false), Description("Сохранённые подробности запроса и ответа: заголовки, тела до 256 KiB, адреса, протокол, traceId, переход состояния. Секретные поля замаскированы; старые записи могут не иметь подробностей.")]
+    public Task<CallToolResult> GetRequestDetails(string sessionId, long requestId, CancellationToken cancellationToken) =>
+        Run(async () => await store.Request(sessionId, requestId, cancellationToken));
+
+    [McpServerTool(Name = "delete_requests", OpenWorld = false), Description("Удаление записей журнала одной сессии без сброса состояния и правил. deletion: либо ids (1–5000 id), либо all: true для всего журнала, включая записи вне фильтров.")]
+    public Task<CallToolResult> DeleteRequests(string sessionId, JournalDeletion deletion, CancellationToken cancellationToken) =>
+        Run(async () => new { deleted = await store.DeleteRequests(sessionId, deletion, cancellationToken) });
+
+    [McpServerTool(Name = "verify_requests", ReadOnly = true, OpenWorld = false), Description("Проверка точного количества запросов в сохранённом журнале. verification: count (по умолчанию 1), необязательные ruleId/method/path. matched означает равенство actualCount и expectedCount. Удалённые записи в проверке не участвуют.")]
     public Task<CallToolResult> VerifyRequests(string sessionId, RequestVerification verification, CancellationToken cancellationToken) => Run(async () => await store.Verify(sessionId, verification, cancellationToken));
 
     [McpServerTool(Name = "reset_session", OpenWorld = false), Description("Очистка журнала и возврат в initialState; конфигурация и правила сохраняются.")]

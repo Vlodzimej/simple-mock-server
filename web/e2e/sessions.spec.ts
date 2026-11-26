@@ -40,10 +40,12 @@ test('session editor configures arbitrary paths, journal, reset and portable con
   await expect(page.getByText('Сессия сохранена', { exact: true })).toBeVisible();
   const base = await page.getByLabel('Адрес подключения приложения').inputValue();
   expect((await request.get(`${base}/v3/orders/42`)).status()).toBe(200);
+  await page.getByRole('button', { name: 'Журнал запросов', exact: true }).click();
   await page.getByRole('button', { name: 'Обновить запросы', exact: true }).click();
   await expect(
-    page.locator('.sessions__request').filter({ hasText: '/v3/orders/42' }),
+    page.locator('.requestJournal__row').filter({ hasText: '/v3/orders/42' }),
   ).toContainText('orders');
+  await page.getByRole('button', { name: 'Конфигурация', exact: true }).click();
   await editor.fill(JSON.stringify({ ...configuration, name: 'E2E HTTP несохранённая' }));
   page.once('dialog', (dialog) => dialog.dismiss());
   await page.getByRole('button', { name: 'Новая HTTP-сессия', exact: true }).click();
@@ -62,9 +64,10 @@ test('session editor configures arbitrary paths, journal, reset and portable con
   await expect(page.getByText('Сессия импортирована', { exact: true })).toBeVisible();
   await expect(editor).toHaveValue(/E2E HTTP импорт/);
   await page.getByRole('button', { name: 'Сбросить состояние и журнал', exact: true }).click();
-  await expect(
-    page.getByText('Запросов пока нет. Выполните вызов через адрес этой сессии.'),
-  ).toBeVisible();
+  await page.getByRole('button', { name: 'Журнал запросов', exact: true }).click();
+  await page.getByRole('button', { name: 'Обновить запросы', exact: true }).click();
+  await expect(page.getByText('По заданным фильтрам запросов нет.')).toBeVisible();
+  await page.getByRole('button', { name: 'Конфигурация', exact: true }).click();
   for (const theme of ['light', 'dark']) {
     if (theme === 'dark')
       await page.getByRole('button', { name: 'Тёмная тема', exact: true }).click();
@@ -75,7 +78,11 @@ test('session editor configures arbitrary paths, journal, reset and portable con
       ).toBeTruthy();
     }
     await expect(editor).toBeEnabled();
-    await editor.focus();
+    await page.bringToFront();
+    await page.getByRole('button', { name: 'Конфигурация', exact: true }).click();
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('button', { name: 'Журнал запросов', exact: true })).toBeFocused();
+    await page.keyboard.press('Tab');
     await expect(editor).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(page.getByRole('button', { name: 'Сохранить сессию', exact: true })).toBeFocused();
@@ -141,14 +148,13 @@ test('session selection loads current configuration and retains edits during a f
   await page.unroute(`**/admin/api/sessions/${id}`);
   await page.getByRole('button', { name: 'Сохранить сессию', exact: true }).click();
   await expect(page.getByText('Сессия сохранена', { exact: true })).toBeVisible();
-  await page.route(`**/admin/api/sessions/${id}/requests`, (route) =>
+  await page.getByRole('button', { name: 'Журнал запросов', exact: true }).click();
+  await page.route(`**/admin/api/sessions/${id}/requests?*`, (route) =>
     route.fulfill({ status: 503, json: { message: 'Журнал сессии недоступен' } }),
   );
   await page.getByRole('button', { name: 'Обновить запросы', exact: true }).click();
   await expect(page.getByText('Журнал сессии недоступен')).toBeVisible();
-  await page.unroute(`**/admin/api/sessions/${id}/requests`);
+  await page.unroute(`**/admin/api/sessions/${id}/requests?*`);
   await page.getByRole('button', { name: 'Обновить запросы', exact: true }).click();
-  await expect(
-    page.getByText('Запросов пока нет. Выполните вызов через адрес этой сессии.'),
-  ).toBeVisible();
+  await expect(page.getByText('По заданным фильтрам запросов нет.')).toBeVisible();
 });

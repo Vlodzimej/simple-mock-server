@@ -25,6 +25,26 @@ public sealed class SessionDispatcher(MockDbContext database, SessionLocks locks
         var path = context.Request.Path.Value![("/s/" + id).Length..];
         if (path.Length == 0) path = "/";
         var entry = new SessionRequest { SessionId = id, Method = context.Request.Method, Path = path, Source = "blocked" };
+        var details = new SessionRequestDetails
+        {
+            RequestUrl = JournalCapture.Url($"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}{context.Request.Path}{context.Request.QueryString}"),
+            Protocol = context.Request.Protocol,
+            TraceId = context.TraceIdentifier,
+            RemoteAddress = context.Connection.RemoteIpAddress?.ToString(),
+            RemotePort = context.Connection.RemotePort,
+            LocalAddress = context.Connection.LocalIpAddress?.ToString(),
+            LocalPort = context.Connection.LocalPort,
+            StateBefore = session.State,
+            RequestHeaders = JournalCapture.Headers(context.Request.Headers)
+        };
+        entry.QueryString = JournalCapture.Query(context.Request.QueryString.Value ?? "");
+        var responseBody = context.Response.Body;
+        using var responseCapture = new JournalResponseStream(responseBody);
+        context.Response.Body = responseCapture;
+        context.Request.EnableBuffering(65536, 1048576);
+        var requestBody = context.Request.Body;
+        using var requestCapture = new JournalRequestStream(requestBody);
+        context.Request.Body = requestCapture;
         var watch = Stopwatch.StartNew();
         try
         {
@@ -60,6 +80,7 @@ public sealed class SessionDispatcher(MockDbContext database, SessionLocks locks
                 entry.Source = "proxy";
                 entry.Reason = "Правило не найдено; отправка на upstream";
                 await proxy.Send(context, session, path, token);
+                details.UpstreamUrl = context.Items["SessionUpstreamUrl"] as string;
             }
             else
             {
@@ -99,16 +120,26 @@ public sealed class SessionDispatcher(MockDbContext database, SessionLocks locks
         catch (OperationCanceledException) when (token.IsCancellationRequested) { entry.Reason = "Клиент отменил запрос"; }
         finally
         {
+            context.Response.Body = responseBody;
             entry.Reason = context.Items["SessionProxyError"] as string ?? entry.Reason;
-            entry.StatusCode = context.Response.StatusCode;
+            entry.StatusCode = token.IsCancellationRequested ? 499 : context.Response.StatusCode;
             entry.DurationMs = watch.ElapsedMilliseconds;
             try
             {
+                try { details.RequestBody = await JournalCapture.Request(context.Request, requestCapture, entry.Source != "proxy", token); }
+                catch (Exception exception) when (exception is IOException or OperationCanceledException or BadHttpRequestException)
+                { details.RequestBody = new("", "omitted", context.Request.ContentType, context.Request.ContentLength, false, "Тело запроса не удалось прочитать полностью."); }
+                finally { context.Request.Body = requestBody; }
+                details.StateAfter = session.State;
+                details.CompletedAt = DateTime.UtcNow;
+                details.ClientAborted = token.IsCancellationRequested;
+                details.UpstreamUrl = JournalCapture.Url(context.Items["SessionUpstreamUrl"] as string ?? details.UpstreamUrl ?? "");
+                details.ResponseHeaders = JournalCapture.Headers(context.Response.Headers);
+                details.ResponseBody = await JournalCapture.Body(responseCapture.Bytes, context.Response.ContentType,
+                    responseCapture.Size, responseCapture.Size > JournalCapture.BodyLimit, context.Response.Headers.ContentEncoding.ToString());
+                entry.DetailsJson = JsonSerializer.Serialize(details, SessionRequestDetails.JsonOptions);
                 database.SessionRequests.Add(entry);
                 await database.SaveChangesAsync(CancellationToken.None);
-                var cutoff = await database.SessionRequests.Where(item => item.SessionId == id).OrderByDescending(item => item.Id)
-                    .Skip(4999).Select(item => (long?)item.Id).FirstOrDefaultAsync(CancellationToken.None);
-                if (cutoff is not null) await database.SessionRequests.Where(item => item.SessionId == id && item.Id < cutoff).ExecuteDeleteAsync(CancellationToken.None);
             }
             catch (DbUpdateException) { logger.LogWarning("Не удалось сохранить журнал сессии {SessionId}", id); }
         }

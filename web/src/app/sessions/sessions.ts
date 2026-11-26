@@ -4,11 +4,12 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { messageOf } from '../core/http-error';
 import { IUnsavedEditor } from '../core/unsaved-guard';
-import { IHttpSession, ISessionRequest, SessionApi } from './session-api';
+import { IHttpSession, SessionApi } from './session-api';
+import { RequestJournal } from './request-journal';
 
 @Component({
   selector: 'app-sessions',
-  imports: [ReactiveFormsModule],
+  imports: [ReactiveFormsModule, RequestJournal],
   templateUrl: './sessions.html',
   styleUrl: './sessions.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -17,14 +18,14 @@ import { IHttpSession, ISessionRequest, SessionApi } from './session-api';
 export class Sessions implements IUnsavedEditor {
   readonly items = signal<IHttpSession[]>([]);
   readonly selected = signal<IHttpSession | null>(null);
-  readonly requests = signal<ISessionRequest[]>([]);
+  readonly tab = signal<'configuration' | 'journal'>('configuration');
+  readonly journalBusy = signal(false);
+  readonly journalVersion = signal(0);
   readonly editing = signal(false);
   readonly busy = signal(false);
-  readonly logsLoading = signal(false);
   readonly loading = signal(false);
   readonly error = signal('');
   readonly listError = signal('');
-  readonly logsError = signal('');
   readonly notice = signal('');
   readonly config = new FormControl('', { nonNullable: true });
   readonly endpoint = computed(() =>
@@ -33,7 +34,6 @@ export class Sessions implements IUnsavedEditor {
   readonly mcpEndpoint = `${location.origin}/mcp`;
   private readonly api = inject(SessionApi);
   private savedConfig = '';
-  private logRequest = 0;
 
   constructor() {
     void this.loadList();
@@ -42,12 +42,13 @@ export class Sessions implements IUnsavedEditor {
   canLeave(): boolean {
     return (
       !this.busy() &&
+      !this.journalBusy() &&
       (!this.config.dirty ||
         window.confirm('В сессии есть несохранённые изменения. Покинуть редактор?'))
     );
   }
   beforeUnload(event: BeforeUnloadEvent): void {
-    if (this.config.dirty || this.busy()) {
+    if (this.config.dirty || this.busy() || this.journalBusy()) {
       event.preventDefault();
       event.returnValue = '';
     }
@@ -84,7 +85,6 @@ export class Sessions implements IUnsavedEditor {
       const session = await firstValueFrom(this.api.get(id));
       this.selected.set(session);
       this.setEditor(session);
-      await this.loadRequests();
     });
   }
 
@@ -97,7 +97,6 @@ export class Sessions implements IUnsavedEditor {
       this.setEditor(session);
       this.notice.set('Сессия сохранена');
       await this.loadList();
-      await this.loadRequests();
     });
   }
 
@@ -115,7 +114,7 @@ export class Sessions implements IUnsavedEditor {
       this.selected.set(null);
       this.config.reset('');
       this.editing.set(false);
-      this.clearRequests();
+      this.tab.set('configuration');
       this.notice.set('Сессия удалена');
       await this.loadList();
     });
@@ -130,22 +129,6 @@ export class Sessions implements IUnsavedEditor {
       this.setEditor(saved);
       this.notice.set('Состояние и журнал сброшены');
     });
-  }
-
-  async loadRequests(): Promise<void> {
-    const id = this.selected()?.id;
-    if (!id) return;
-    const generation = ++this.logRequest;
-    this.logsLoading.set(true);
-    this.logsError.set('');
-    try {
-      const requests = await firstValueFrom(this.api.requests(id));
-      if (generation === this.logRequest) this.requests.set(requests);
-    } catch (error: unknown) {
-      if (generation === this.logRequest) this.logsError.set(messageOf(error));
-    } finally {
-      if (generation === this.logRequest) this.logsLoading.set(false);
-    }
   }
 
   async export(): Promise<void> {
@@ -190,13 +173,8 @@ export class Sessions implements IUnsavedEditor {
     this.editing.set(true);
     this.error.set('');
     this.notice.set('');
-    this.clearRequests();
-  }
-  private clearRequests(): void {
-    this.logRequest++;
-    this.requests.set([]);
-    this.logsError.set('');
-    this.logsLoading.set(false);
+    this.tab.set('configuration');
+    this.journalVersion.update((value) => value + 1);
   }
   private parse(text: string): object {
     let value: unknown;

@@ -26,6 +26,9 @@ namespace MockServer.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("DetailsJson")
+                        .HasColumnType("TEXT");
+
                     b.Property<long>("DurationMs")
                         .HasColumnType("INTEGER");
 
@@ -35,6 +38,9 @@ namespace MockServer.Infrastructure.Migrations
 
                     b.Property<string>("Path")
                         .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("QueryString")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Reason")

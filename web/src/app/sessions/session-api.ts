@@ -11,6 +11,7 @@ export interface IHttpSession {
 
 export interface ISessionRequest {
   id: number;
+  createdAt: string;
   method: string;
   path: string;
   ruleId: string | null;
@@ -18,6 +19,36 @@ export interface ISessionRequest {
   statusCode: number;
   durationMs: number;
   reason: string;
+  queryString: string | null;
+  details?: ISessionRequestDetails;
+}
+
+export interface IJournalBody {
+  content: string;
+  encoding: string;
+  contentType: string | null;
+  size: number | null;
+  truncated: boolean;
+  note: string | null;
+}
+
+export interface ISessionRequestDetails {
+  requestUrl: string;
+  upstreamUrl: string | null;
+  protocol: string;
+  traceId: string;
+  remoteAddress: string | null;
+  remotePort: number;
+  localAddress: string | null;
+  localPort: number;
+  stateBefore: string;
+  stateAfter: string;
+  completedAt: string;
+  clientAborted: boolean;
+  requestHeaders: Record<string, string[]>;
+  responseHeaders: Record<string, string[]>;
+  requestBody: IJournalBody | null;
+  responseBody: IJournalBody | null;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -48,7 +79,13 @@ export class SessionApi {
   import(configuration: object) {
     return this.http.post<IHttpSession>(`${this.path}/import`, configuration);
   }
-  requests(id: string) {
-    return this.http.get<ISessionRequest[]>(`${this.path}/${id}/requests`);
+  requests(id: string, params: Record<string, string | number> = {}) {
+    return this.http.get<ISessionRequest[]>(`${this.path}/${id}/requests`, { params });
+  }
+  request(id: string, requestId: number) {
+    return this.http.get<ISessionRequest>(`${this.path}/${id}/requests/${requestId}`);
+  }
+  deleteRequests(id: string, body: { all: true } | { ids: number[] }) {
+    return this.http.delete<{ deleted: number }>(`${this.path}/${id}/requests`, { body });
   }
 }

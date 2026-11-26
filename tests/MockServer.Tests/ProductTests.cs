@@ -21,8 +21,8 @@ public class ProductTests
         {
             await database.GetService<IMigrator>().MigrateAsync("20261124065746_UniversalSessions");
             database.Sessions.Add(new SessionRow { Id = session.Id, Payload = JsonSerializer.Serialize(session, SessionJson.Options) });
-            database.SessionRequests.Add(new SessionRequest { SessionId = session.Id, Method = "GET", Path = "/example", Source = "mock", StatusCode = 200 });
             await database.SaveChangesAsync();
+            await database.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO SessionRequests (SessionId, CreatedAt, Method, Path, Source, StatusCode, DurationMs, Reason) VALUES ({session.Id}, {DateTime.UtcNow}, 'GET', '/example', 'mock', 200, 0, '')");
         }
         using var http = host.CreateClient();
         var restored = await Read(await http.GetAsync("/admin/api/sessions/preserved"));
@@ -31,6 +31,8 @@ public class ProductTests
         var history = (await Read(await http.GetAsync("/admin/api/sessions/preserved/requests"))).AsArray();
         Assert.Single(history);
         Assert.Equal("/example", (string?)history[0]!["path"]);
+        var detail = await Read(await http.GetAsync($"/admin/api/sessions/preserved/requests/{history[0]!["id"]}"));
+        Assert.Null(detail["details"]);
     }
 
     [Fact]
